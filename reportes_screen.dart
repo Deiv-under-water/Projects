@@ -1,230 +1,396 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
-import '../controladores/auth_controller.dart';
-import 'inventario/inventario_screen.dart';
-import 'ventas/ventas_screen.dart';
-import 'reportes/reportes_screen.dart';
+import '../../controladores/reportes_controller.dart';
+//import 'package:open_filex/open_filex.dart';
+import 'package:printing/printing.dart';
 
-class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+class ReportesScreen extends StatefulWidget {
+  const ReportesScreen({super.key});
 
   @override
-  State<HomeScreen> createState() => _HomeScreenState();
+  State<ReportesScreen> createState() => _ReportesScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
-  int _selectedIndex = 0;
+class _ReportesScreenState extends State<ReportesScreen> {
+  final clienteController = TextEditingController();
+  DateTime? fechaInicio;
+  DateTime? fechaFin;
+  final dateFormat = DateFormat('yyyy-MM-dd');
 
-  final List<Widget> _screens = const [
-    InventarioScreen(),
-    VentasScreen(),
-    ReportesScreen(),
-  ];
-
-  final List<_MenuItem> _menuItems = const [
-    _MenuItem(icon: Icons.inventory_2_outlined, title: "Inventario"),
-    _MenuItem(icon: Icons.point_of_sale, title: "Ventas"),
-    _MenuItem(icon: Icons.bar_chart_rounded, title: "Reportes"),
-  ];
+  Future<void> seleccionarFecha(BuildContext context, bool esInicio) async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: DateTime.now(),
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now(),
+    );
+    if (picked != null) {
+      setState(() {
+        if (esInicio) {
+          fechaInicio = picked;
+        } else {
+          fechaFin = picked;
+        }
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    final auth = Provider.of<AuthController>(context, listen: false);
+    final controller = Provider.of<ReporteController>(context);
+
+    // Agrupar ventas por id_venta
+    final ventasAgrupadas = <String, List<Map<String, dynamic>>>{};
+    for (var r in controller.reportes) {
+      final id = r['id_venta'].toString();
+      ventasAgrupadas.putIfAbsent(id, () => []);
+      ventasAgrupadas[id]!.add(r);
+    }
 
     return Scaffold(
-      backgroundColor: Colors.grey[50],
-      appBar: AppBar(
-        elevation: 0,
-        backgroundColor: const Color(0xFFFF9B71),
-        title: const Text(
-          "InventFact",
-          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 22),
-        ),
-        centerTitle: true,
-        leading: Builder(
-          builder:
-              (context) => IconButton(
-                icon: const Icon(Icons.menu_rounded),
-                tooltip: "Menú",
-                onPressed: () => Scaffold.of(context).openDrawer(),
-              ),
-        ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.logout_rounded),
-            tooltip: "Cerrar sesión",
-            onPressed: () => _showLogoutDialog(context, auth),
-          ),
-        ],
-      ),
-      drawer: Drawer(
+      appBar: AppBar(title: const Text('Reportes')),
+      body: Padding(
+        padding: const EdgeInsets.all(16),
         child: Column(
           children: [
-            // Header del drawer
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.fromLTRB(20, 50, 20, 20),
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [Color(0xFFFF9B71), Color(0xFFFFB591)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
+            TextField(
+              controller: clienteController,
+              decoration: const InputDecoration(
+                labelText: 'Nombre del cliente',
+                prefixIcon: Icon(Icons.person),
+              ),
+            ),
+            const SizedBox(height: 10),
+
+            Row(
+              children: [
+                Expanded(
+                  child: TextButton.icon(
+                    icon: const Icon(Icons.date_range),
+                    label: Text(
+                      fechaInicio == null
+                          ? 'Fecha inicio'
+                          : dateFormat.format(fechaInicio!),
+                    ),
+                    onPressed: () => seleccionarFecha(context, true),
+                  ),
                 ),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const CircleAvatar(
-                    radius: 35,
-                    backgroundColor: Colors.white,
-                    child: Icon(
-                      Icons.person,
-                      size: 40,
-                      color: Color(0xFFFF9B71),
+                Expanded(
+                  child: TextButton.icon(
+                    icon: const Icon(Icons.date_range),
+                    label: Text(
+                      fechaFin == null
+                          ? 'Fecha fin'
+                          : dateFormat.format(fechaFin!),
                     ),
+                    onPressed: () => seleccionarFecha(context, false),
                   ),
-                  const SizedBox(height: 12),
-                  Text(
-                    auth.empleadoActual?.nombre ?? "Usuario",
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  Text(
-                    auth.empleadoActual?.usuario ?? "Rol",
-                    style: TextStyle(
-                      color: Colors.white.withOpacity(0.9),
-                      fontSize: 14,
-                    ),
-                  ),
-                ],
-              ),
+                ),
+              ],
             ),
 
-            // Opciones del menú
-            Expanded(
-              child: ListView.builder(
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                itemCount: _menuItems.length,
-                itemBuilder: (context, index) {
-                  final item = _menuItems[index];
-                  final isSelected = _selectedIndex == index;
+            const SizedBox(height: 10),
 
-                  return Container(
-                    margin: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 4,
+            ///
+            /// 🔥 🔥 AQUI AGREGO LOS 2 BOTONES DE PDFs 🔥 🔥
+            ///
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    icon: const Icon(Icons.inventory),
+                    label: const Text("PDF Inventario"),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.orange,
                     ),
-                    decoration: BoxDecoration(
-                      color:
-                          isSelected
-                              ? const Color(0xFFFF9B71).withOpacity(0.1)
-                              : Colors.transparent,
-                      borderRadius: BorderRadius.circular(12),
+                    onPressed: () async {
+                      try {
+                        final pdf =
+                            await controller.generarPDFInventarioDocumento();
+                        await Printing.layoutPdf(
+                          onLayout: (format) async => pdf.save(),
+                        );
+                      } catch (e) {
+                        mostrarError(
+                          context,
+                          "No se pudo generar el PDF. Revise su conexión.",
+                        );
+                      }
+                    },
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    icon: const Icon(Icons.picture_as_pdf),
+                    label: const Text("PDF Ventas"),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.redAccent,
                     ),
-                    child: ListTile(
-                      leading: Icon(
-                        item.icon,
-                        color:
-                            isSelected
-                                ? const Color(0xFFFF9B71)
-                                : Colors.grey[600],
-                      ),
-                      title: Text(
-                        item.title,
-                        style: TextStyle(
-                          color:
-                              isSelected
-                                  ? const Color(0xFFFF9B71)
-                                  : Colors.grey[800],
-                          fontWeight:
-                              isSelected ? FontWeight.bold : FontWeight.normal,
-                        ),
-                      ),
-                      onTap: () {
-                        setState(() => _selectedIndex = index);
-                        Navigator.pop(context);
-                      },
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
+                    onPressed: () async {
+                      try {
+                        final pdf =
+                            await controller.generarPDFVentasDocumento();
+                        await Printing.layoutPdf(
+                          onLayout: (format) async => pdf.save(),
+                        );
+                      } catch (e) {
+                        mostrarError(
+                          context,
+                          "Error al generar PDF de ventas.",
+                        );
+                      }
+                    },
+                  ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 20),
+
+            //const SizedBox(height: 20),
+            ElevatedButton.icon(
+              icon: const Icon(Icons.search),
+              label: const Text('Buscar'),
+              onPressed: () async {
+                try {
+                  await controller.buscarReportes(
+                    cliente: clienteController.text,
+                    fechaInicio:
+                        fechaInicio != null
+                            ? dateFormat.format(fechaInicio!)
+                            : null,
+                    fechaFin:
+                        fechaFin != null ? dateFormat.format(fechaFin!) : null,
                   );
-                },
-              ),
-            ),
-
-            // Footer
-            const Divider(height: 1),
-            ListTile(
-              leading: const Icon(Icons.info_outline, color: Colors.grey),
-              title: const Text("Acerca de"),
-              onTap: () {
-                Navigator.pop(context);
-                _showAboutDialog(context);
+                } catch (e) {
+                  mostrarError(context, e.toString());
+                }
               },
             ),
-            const SizedBox(height: 8),
+
+            const SizedBox(height: 10),
+
+            Expanded(
+              child:
+                  controller.cargando
+                      ? const Center(child: CircularProgressIndicator())
+                      : ventasAgrupadas.isEmpty
+                      ? const Center(child: Text('No hay reportes'))
+                      : ListView(
+                        children:
+                            ventasAgrupadas.entries.map((entry) {
+                              final venta = entry.value.first;
+                              final idVenta = int.parse(venta['id_venta']);
+
+                              return Card(
+                                child: ListTile(
+                                  title: Text(
+                                    '${venta['nombre_cliente']} - \$${venta['total']}',
+                                  ),
+                                  subtitle: Text(
+                                    'Fecha: ${venta['fecha_venta']}',
+                                  ),
+                                  trailing: const Icon(Icons.arrow_forward_ios),
+                                  onTap: () async {
+                                    await controller.obtenerDetallesVenta(
+                                      idVenta,
+                                    );
+                                    mostrarDetalleVenta(
+                                      context,
+                                      controller,
+                                      venta,
+                                    );
+                                  },
+                                ),
+                              );
+                            }).toList(),
+                      ),
+            ),
           ],
         ),
       ),
-      body: AnimatedSwitcher(
-        duration: const Duration(milliseconds: 300),
-        child: _screens[_selectedIndex],
+    );
+  }
+
+  void mostrarDetalleVenta(
+    BuildContext context,
+    ReporteController controller,
+    Map<String, dynamic> venta,
+  ) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        final detalles = controller.detallesVenta;
+
+        return DraggableScrollableSheet(
+          initialChildSize: 0.70,
+          maxChildSize: 0.90,
+          minChildSize: 0.40,
+          builder: (_, scrollController) {
+            return Container(
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(25)),
+                boxShadow: [
+                  BoxShadow(
+                    blurRadius: 10,
+                    color: Colors.black26,
+                    offset: Offset(0, -2),
+                  ),
+                ],
+              ),
+              padding: const EdgeInsets.all(20),
+              child:
+                  detalles.isEmpty
+                      ? const Center(
+                        child: Text(
+                          'Sin detalles',
+                          style: TextStyle(fontSize: 16),
+                        ),
+                      )
+                      : ListView(
+                        controller: scrollController,
+                        children: [
+                          // Barra de arrastre elegante
+                          Center(
+                            child: Container(
+                              width: 40,
+                              height: 5,
+                              margin: const EdgeInsets.only(bottom: 15),
+                              decoration: BoxDecoration(
+                                color: Colors.grey[400],
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                            ),
+                          ),
+
+                          // Título
+                          const Text(
+                            'Detalles de la Venta',
+                            style: TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+
+                          const SizedBox(height: 10),
+                          Text(
+                            "Cliente: ${venta['nombre_cliente']}",
+                            style: const TextStyle(
+                              fontSize: 16,
+                              color: Colors.black87,
+                            ),
+                          ),
+                          Text(
+                            "Fecha: ${venta['fecha_venta']}",
+                            style: const TextStyle(color: Colors.grey),
+                          ),
+                          const SizedBox(height: 10),
+
+                          const Divider(),
+
+                          // Lista de productos con estilo
+                          ...detalles.map((d) {
+                            return Card(
+                              elevation: 1,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: ListTile(
+                                contentPadding: const EdgeInsets.all(12),
+                                title: Text(
+                                  d['producto'],
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 16,
+                                  ),
+                                ),
+                                subtitle: Text(
+                                  "Cantidad: ${d['cantidad']}\nPrecio unit.: \$${d['precio_unitario']}",
+                                ),
+                                trailing: Text(
+                                  "Subtotal\n\$${d['subtotal']}",
+                                  textAlign: TextAlign.end,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.deepOrange,
+                                  ),
+                                ),
+                              ),
+                            );
+                          }),
+
+                          const Divider(),
+
+                          // Total general mejor visualizado
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: Text(
+                              "Total: \$${venta['total']}",
+                              style: const TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.green,
+                              ),
+                            ),
+                          ),
+
+                          const SizedBox(height: 20),
+
+                          // Botón PDF
+                          ElevatedButton.icon(
+                            icon: const Icon(Icons.picture_as_pdf),
+                            label: const Text('Exportar a PDF'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color.fromARGB(
+                                255,
+                                255,
+                                255,
+                                255,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              textStyle: const TextStyle(fontSize: 16),
+                            ),
+                            onPressed: () async {
+                              await controller.generarFacturaPDF(
+                                ventaSeleccionada: venta,
+                                detalles: controller.detallesVenta,
+                              );
+                            },
+                          ),
+
+                          const SizedBox(height: 10),
+
+                          TextButton(
+                            onPressed: () => Navigator.pop(context),
+                            child: const Text(
+                              'Cerrar',
+                              style: TextStyle(fontSize: 16),
+                            ),
+                          ),
+                        ],
+                      ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void mostrarError(BuildContext context, String mensaje) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(mensaje),
+        backgroundColor: Colors.redAccent,
+        behavior: SnackBarBehavior.floating,
       ),
     );
   }
-
-  void _showLogoutDialog(BuildContext context, AuthController auth) {
-    showDialog(
-      context: context,
-      builder:
-          (context) => AlertDialog(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-            ),
-            title: const Text("Cerrar sesión"),
-            content: const Text("¿Estás seguro de que deseas salir?"),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text("Cancelar"),
-              ),
-              ElevatedButton(
-                onPressed: () {
-                  auth.logout();
-                  Navigator.pushReplacementNamed(context, '/login');
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFFF9B71),
-                ),
-                child: const Text("Salir"),
-              ),
-            ],
-          ),
-    );
-  }
-
-  void _showAboutDialog(BuildContext context) {
-    showAboutDialog(
-      context: context,
-      applicationName: "InventFact",
-      applicationVersion: "1.0.0",
-      applicationIcon: const Icon(
-        Icons.inventory_2,
-        size: 48,
-        color: Color(0xFFFF9B71),
-      ),
-      children: [const Text("Sistema de gestión de inventario y facturación")],
-    );
-  }
-}
-
-class _MenuItem {
-  final IconData icon;
-  final String title;
-
-  const _MenuItem({required this.icon, required this.title});
 }
